@@ -1,0 +1,143 @@
+#include <hFramework.h>
+#include <MPU9250.h>
+#include <math.h>
+#include "Hitechnic_Gyro.h"
+ 
+ 
+ 
+using namespace hFramework;
+using namespace hSensors;
+ 
+ 
+ 
+//PID
+ 
+float Kp=106; 
+float Kd=0.19;  
+float Ki=7;
+ 
+ 
+ 
+ 
+int rep=10; //how many readings are rounded for single update
+int offsetrep=20; //how many readings are rounded for setting the offset for gyro
+int booted = 0; 
+float angleAccel = 0;
+float angleFiltrated=0;
+float angleIntegral=0;
+float power;
+float sumAy=0;
+float sumAz=0;
+float accY=0;
+float accZ=0;
+float angularspeedSum=0;
+float gyroOffset=0;
+float angularspeed=0;
+float angleGyro=0;
+ 
+void hMain()
+{
+	sys.setLogDev(&Serial);
+ 
+	MPU9250 mpu(hSens2);
+	Hitechnic_Gyro sensorG(hSens5);
+ 
+	mpu.init();
+	mpu.enableInterrupt();
+	sys.delay_ms(2000);
+	LED1.on();
+	LED2.on();
+	LED3.on();
+	for(int i = 0; i<offsetrep;i++)
+	{
+    	if (mpu.process())
+    	{
+ 
+        	MPU9250::Reading reading = mpu.getReading();
+        	int16_t angularspeed = sensorG.read();
+        	angularspeedSum += angularspeed;
+        	sys.delay_ms(5);
+    	}
+	}
+ 
+	LED1.off();
+	LED2.off();
+	LED3.off();
+ 
+	angularspeedSum=angularspeedSum/100; //konwersja na kat
+	gyroOffset=angularspeedSum/offsetrep;  //gyro offset is gyro reading when in rest
+	angularspeedSum=0;
+ 
+	for (;;)
+	{
+ 
+        	for(int i = 0; i<rep;i++)
+        	{
+            	if (mpu.process())
+            	{
+            	MPU9250::Reading reading = mpu.getReading();
+            	int16_t angularspeed = sensorG.read();
+            	angularspeedSum+=angularspeed;
+ 
+            	sumAy+=reading.ay;
+            	sumAz+=reading.az;
+ 
+            	}
+        	}
+ 
+    	angularspeedSum=angularspeedSum/100; //konwersja na kat
+    	angularspeed=angularspeedSum/rep-gyroOffset;
+ 
+    	angleGyro+=angularspeed;
+ 
+    	accY=sumAy/rep;
+    	accZ=sumAz/rep;
+ 
+    	angleAccel = atan2(accZ, accY)*180/M_PI ;
+ 
+    	angleAccel=angleAccel-41.5-3.75-0.2;   //center of mass calibration
+ 
+    	if (booted == 0)
+    	{
+        	printf("\e[1;1H\e[2J");
+        	printf("a %6f\r\n", angleAccel);
+ 
+        	if (angleAccel>-0.1&&angleAccel<0.1)
+        	{
+            	booted = 1;
+            	angleGyro = 0;
+            	angleIntegral=0;
+            	LED1.on();
+ 
+ 
+        	}
+    	}
+ 
+    	sumAy=0;
+    	sumAz=0;
+    	angularspeedSum=0;
+ 
+    	angleFiltrated=0.97*angleGyro+0.03*angleAccel;
+ 
+ 
+    	angleIntegral+=angleFiltrated;
+ 
+    	if (booted == 1)
+    	{
+ 
+        	printf("\e[1;1H\e[2J");  	//clearing screen
+        	printf("angleAccel: %f\r\n",angleAccel );
+        	printf("angularspeed %6f \r\n angleGyro %6f \r\n", angularspeed, angleGyro);
+        	printf("angleFiltrated: %f\r\n",angleFiltrated );
+        	printf("Kp: %f\r\nKd:% f\r\nKi: %f\r\n ",Kp*angleFiltrated,Kd*Kp*angularspeed,angleIntegral*Kp/Ki);
+        	power = Kp*(angleFiltrated+Kd*angularspeed+1/Ki*angleIntegral); //PID controler 
+        	hMot1.setPower(power);
+        	hMot2.setPower(power);
+        	printf("power: %f\r\n", power );
+ 
+    	}
+	}
+ 
+}
+ 
+ 
